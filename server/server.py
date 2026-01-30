@@ -51,7 +51,7 @@ def handle_connection(client_socket, addr):
             
             if recepient in clients:
                 clients[recepient].sendall(
-                    f"{username}--> {message}\n".encode()
+                    f"{username}|{message}\n".encode()
                 )
                 now = datetime.now()
                 print('[\033[32m'+ str(now.hour) + ':' + str(now.minute) + '\033[0m]', username, '->', recepient + ':', message)

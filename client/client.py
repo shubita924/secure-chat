@@ -1,5 +1,10 @@
 import socket
 import threading
+from cryptography.fernet import Fernet
+
+key = b'md4JD2qEkqlhqklH18RDmtX_XHHtZRYmKDQOqQd5gos='
+
+cipher = Fernet(key)
 
 
 def recv_line(sock):
@@ -41,8 +46,11 @@ def receive_messages(client):
             msg = recv_line(client)
             if not msg:
                 break
-            print('\n' + msg + '\n')
+            sender = msg.split('|', 1)[0]
+            message = msg.split('|', 1)[1]
+            print('\n' + sender + ' -> ' + cipher.decrypt(message.encode()).decode() + '\n')
         except:
+            print("errorrrrr")
             break        
     
    
@@ -72,7 +80,9 @@ def main():
             if '|' not in text:
                 print("Use format recipient|message")
                 continue
-            client.send((text + '\n').encode())
+            recepient = text.split('|', 1)[0]
+            message = text.split('|', 1)[1]
+            client.send(recepient.encode() + b'|' + cipher.encrypt(message.encode()) + b'\n')
         except:
             break
 
