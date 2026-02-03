@@ -1,59 +1,38 @@
 import socket
 import threading
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
-import base64
+
+from crypto_utils import (
+    generate_rsa_keys,
+    serialize_public_key,
+    load_public_key,
+    generate_aes_key,
+    encrypt_message,
+    decrypt_message,
+    encrypt_aes_key_with_rsa,
+    decrypt_aes_key_with_rsa
+)
+
 
 session_keys = {}
 
 
 
 def send_key_exchange(client, recipient):
-    
-    aes_key = Fernet.generate_key()  
+    aes_key = generate_aes_key()
+
     recipient_pub_pem = request_public_key(client, recipient)
     if not recipient_pub_pem:
         return None
 
-    
-    recipient_pub = serialization.load_pem_public_key(
-        recipient_pub_pem.encode()
-    )
+    recipient_pub = load_public_key(recipient_pub_pem)
+    encrypted_key_b64 = encrypt_aes_key_with_rsa(aes_key, recipient_pub)
 
-    
-    encrypted_key = recipient_pub.encrypt(
-        aes_key,
-        padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA256()),
-            algorithm=hashes.SHA256(),
-            label=None
-        )
-    )
-
-    
     client.send(
-        b"KEY_EXCHANGE|" + recipient.encode() + b"|" + base64.b64encode(encrypted_key) + b"\n"
+        b"KEY_EXCHANGE|" + recipient.encode() + b"|" + encrypted_key_b64 + b"\n"
     )
-    
-    return aes_key  
 
-
-
-
-def generate_rsa_keys():
-    private_key = rsa.generate_private_key(
-        public_exponent=65537,
-        key_size=2048
-    )
-    public_key = private_key.public_key()
-    return private_key, public_key
-
-def serialize_public_key(public_key):
-    return public_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    )
+    return aes_key
+  
     
 def request_public_key(client, recipient):
     
@@ -108,41 +87,38 @@ def enter_username(client):
 
 
 def receive_messages(client, rsa_private_key):
-    
     while True:
         try:
             msg = recv_line(client)
             if not msg:
                 break
+
             cmds = msg.split('|')
             command = cmds[0]
-            sender = cmds[1]
-            message = cmds[2]
+
             if command == 'MSG':
-                cipher = Fernet(session_keys[sender])
-                print('\n' + sender + ' -> ' + cipher.decrypt(message.encode()).decode() + '\n')
-            elif command == 'KEY_EXCHANGE':
-                
-                sender = cmds[1]  
-                encrypted_key_b64 = cmds[2]
-                
-                encrypted_key = base64.b64decode(encrypted_key_b64)
-                
-                aes_key = rsa_private_key.decrypt(
-                    encrypted_key,
-                    padding.OAEP(
-                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                        algorithm=hashes.SHA256(),
-                        label=None
-                    )
+                sender = cmds[1]
+                encrypted_msg = cmds[2].encode()
+                print(
+                    '\n' + sender + ' -> ' +
+                    decrypt_message(session_keys[sender], encrypted_msg) + '\n'
                 )
-                
+
+            elif command == 'KEY_EXCHANGE':
+                sender = cmds[1]
+                encrypted_key_b64 = cmds[2]
+
+                aes_key = decrypt_aes_key_with_rsa(
+                    encrypted_key_b64,
+                    rsa_private_key
+                )
                 session_keys[sender] = aes_key
                 print(f"[INFO] Received AES session key from {sender}")
 
         except:
             print("errorrrrr")
-            break        
+            break
+       
     
    
 def main():   
@@ -184,8 +160,12 @@ def main():
                 session_key = send_key_exchange(client, recipient)
                 session_keys[recipient] = session_key
             
-            encrypted_message = Fernet(session_keys[recipient]).encrypt(message.encode())
+            encrypted_message = encrypt_message(
+                session_keys[recipient],
+                message
+            )
             client.send(b'MSG|' + recipient.encode() + b'|' + encrypted_message + b'\n')
+
         except:
             break
 
